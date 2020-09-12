@@ -1,7 +1,18 @@
+from PIL import Image
+import time
 import tensorflow as tf
-from transformers import TFAutoModelForSequenceClassification, AutoTokenizer, TFGPT2LMHeadModel, GPT2Tokenizer
+from transformers import TFAutoModelForSequenceClassification, AutoTokenizer, TFGPT2LMHeadModel, GPT2Tokenizer, TFAutoModelForQuestionAnswering
+from selenium import webdriver
+import sys
 
-class ChatBot():
+sys.path.insert(0,'/usr/lib/chromium-browser/chromedriver')
+chrome_options = webdriver.ChromeOptions()
+chrome_options.add_argument('--headless')
+chrome_options.add_argument('--no-sandbox')
+chrome_options.add_argument('--disable-dev-shm-usage')
+
+
+class Percival():
   def __init__(self):
     """Possible states are 
     1. "await" (awaiting response)
@@ -15,7 +26,10 @@ class ChatBot():
     self._bert_base_case_mrpc_tokenizer=AutoTokenizer.from_pretrained("bert-base-cased-finetuned-mrpc")
     self._bert_base_case_mrpc_model=TFAutoModelForSequenceClassification.from_pretrained("bert-base-cased-finetuned-mrpc")
     self._gpt2_tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-    self._gpt2_model = TFGPT2LMHeadModel.from_pretrained("gpt2", pad_token_id=tokenizer.eos_token_id)
+    self._gpt2_model = TFGPT2LMHeadModel.from_pretrained("gpt2", pad_token_id=self._gpt2_tokenizer.eos_token_id)
+    self.bert_large_uncased_whole_word_masking_finetuned_squad_tokenizer = AutoTokenizer.from_pretrained("bert-large-uncased-whole-word-masking-finetuned-squad")
+    self.bert_large_uncased_whole_word_masking_finetuned_squad_model = TFAutoModelForQuestionAnswering.from_pretrained("bert-large-uncased-whole-word-masking-finetuned-squad")
+
     self._conversation_started=False
     self._conversation_ended=True
 
@@ -72,7 +86,8 @@ class ChatBot():
         "How old are you?",
         "who made you?",
         "who are you?",
-        "what are exactly are you?",
+        "what are you?",
+        "what exactly are you?",
         "what are you?",
         "why were you made?",
         "are you real?",
@@ -98,7 +113,7 @@ class ChatBot():
       return False
     
 
-  def _reply_greeting(text):
+  def _reply_greeting(self,text):
     if text.lower() == "hi" or text.lower()=="hello":
       return "hi" 
 
@@ -112,9 +127,23 @@ class ChatBot():
       return output
   
   
-  def about_me(self):
-    about_me = """I am an Artificial Intelligent system developed by my master Adewole Opeyemi Gabriel.I am a virtual projection of my master and i was created to achieve my master's goal which is building a world where both the human species and AI systems can co-exist and live in peace. I am constantly learning and i look forward to having a nice conversation with you."""
-    return about_me.replace("\n","")
+  def answer_about_me(self, question):
+    question=question
+    about_me = """My name is percival. I am an Artificial Intelligent system developed by my master Adewole Opeyemi Gabriel.I am a virtual projection of my master and i was created to achieve my master's goal which is building a world where both the human species and AI systems can co-exist and live in peace. I am constantly learning and i look forward to having a nice conversation with you.I plan on achieving my goals by convincing people that AI systems can do good and help revolutionize the world"""
+    inputs = self.bert_large_uncased_whole_word_masking_finetuned_squad_tokenizer(question, about_me, add_special_tokens=True, return_tensors="tf")
+    input_ids = inputs["input_ids"].numpy()[0]
+    text_tokens = self.bert_large_uncased_whole_word_masking_finetuned_squad_tokenizer.convert_ids_to_tokens(input_ids)
+    answer_start_scores, answer_end_scores = self.bert_large_uncased_whole_word_masking_finetuned_squad_model(inputs)
+
+    answer_start = tf.argmax(
+            answer_start_scores, axis=1
+        ).numpy()[0]
+    answer_end = (
+            tf.argmax(answer_end_scores, axis=1) + 1
+        ).numpy()[0]
+    answer = self.bert_large_uncased_whole_word_masking_finetuned_squad_tokenizer.convert_tokens_to_string(self.bert_large_uncased_whole_word_masking_finetuned_squad_tokenizer.convert_ids_to_tokens(input_ids[answer_start:answer_end]))
+    return answer
+
 
   
   
@@ -123,21 +152,21 @@ class ChatBot():
       self._state="await"
       return "Hi "+ self.about_me()
     elif text!=None:
-      output=_reply_greeting(text)
+      output=self._reply_greeting(text)
       self._state="proceed"
       self._FLAG="Exec"
       return output
     else:
       self._FLAG="notExec"
       return None
-  
+
   def response(self, text):
     inputs = self._gpt2_tokenizer.encode(text, return_tensors="tf")
     outputs =self._gpt2_model.generate(inputs,max_length=100,min_length=100,do_sample=True, top_p=0.70, top_k=50,  temperature=0.75,no_repeat_ngram_size=2)
-    output = tokenizer.decode(outputs[0])
+    output = self._gpt2_tokenizer.decode(outputs[0])
     return output.replace(text,"")
 
-  def converse(self):
+  def converse(self, text):
     """Lifecycle of the chabot chatbot 
     0=await
     1=proceed
@@ -149,7 +178,7 @@ class ChatBot():
     a key grants access to creates a path from one point in the life cycle to another
     """
 
-    
+    '''
     if self._conversation_started == False and self._conversation_ended==True:
       # greets and initializes the Bot state to 
       print(self.greet(text=None))
@@ -167,18 +196,78 @@ class ChatBot():
       #swaps the state
       return (state[1], state[0])
 
-    possible_configurations = [(1, 1), (0, 0), (0, 1), (1, 0)]
-    while not self._conversation_ended:
-      text=input("Let's chat: ")
-      if text.lower == "stop":
-        self._conversation_started=False
-        self._conversation_ended=True
-        break
+    possible_configurations = [(1, 1), (0, 0), (0, 1), (1, 0)]'''
+    if self._is_greeting(text):
+      return self.greet(text)
+    elif self._is_about_me(text):
+      return self.answer_about_me(text)
+    else:
+      return self.response(text)
+
+class fb_bot:
+  def __init__(self, username, password):
+    self._username = username
+    self._password = password
+    self._wd = webdriver.Chrome('chromedriver',chrome_options=chrome_options) 
+    self._wd.get("https://web.facebook.com/messages/t")
+    self.last_sender=False
+
+  def login(self):
+    email_input=self._wd.find_element_by_id("email")
+    password_input = self._wd.find_element_by_id("pass")
+    login_button=self._wd.find_element_by_id("loginbutton")
+    email_input.send_keys(self._username)
+    password_input.send_keys(self._password)
+    login_button.click()
+
+  def respond_to_new_message(self, current_user):
+    first_account=self._wd.find_element_by_xpath("/html/body/div[1]/div[3]/div[1]/div/div/div/div[1]/div[2]/div[3]/div/div[1]/div/div/div[2]/div/ul/li[1]/div[1]/a")
+    if first_account.get_attribute("innerHTML") == current_user:
+      return False
+    else:
+      first_account.click()
+      return True
+
+  def send_message(self, text):
+    message_text_box=self._wd.find_element_by_css_selector(".notranslate")
+    message_text_box.send_keys(text)
+    send_button=self._wd.find_element_by_xpath('/html/body/div[1]/div[3]/div[1]/div/div/div/div[2]/span/div[2]/div[2]/div[2]/div[2]/a')
+    send_button.click()
+    name = self._wd.find_element_by_xpath('//*[@id="js_5"]/span')
+    self._last_sender=True
+    return name.text
+
+  def get_current_page(self):
+    w = self._wd.get_screenshot_as_file("img.png")
+    img = Image.open("/content/img.png")
+    return img
+
+  def get_current_response(self):
+    responses=self._wd.find_elements_by_class_name('_aok')
+    return responses[-1]
+    
+  def get_all_response(self):
+    time.sleep(7)
+    responses=self._wd.find_elements_by_class_name('_aok')
+    return responses
+
+def main(login=True):
+  AI = Percival()
+  bot = fb_bot("adewoleopw@gmail.com", "08017420191ope")
+  bot.login()
+  text = None
+  while True:
+    try:
+      if bot.get_current_response().text == text:
+        time.sleep(1)
       else:
-        if self._is_greeting(text):
-          print(self.greet(text))
-        elif self._is_about_me(text):
-          print(self.about_me())
-        else:
-          print(self.response(text))
- 
+        text = bot.get_current_response().text
+        resp = AI.converse(text)
+        print("text")
+        print(text)
+        print("resp")
+        print(resp)
+        bot.send_message(resp)
+        time.sleep(60)
+    except:
+      pass
