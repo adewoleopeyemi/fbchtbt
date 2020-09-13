@@ -1,7 +1,7 @@
 from PIL import Image
 import time
 import tensorflow as tf
-from transformers import TFAutoModelForSequenceClassification, AutoTokenizer, TFGPT2LMHeadModel, GPT2Tokenizer, TFAutoModelForQuestionAnswering
+from transformers import TFAutoModelForSequenceClassification, AutoTokenizer, TFGPT2LMHeadModel, GPT2Tokenizer, AutoModelWithLMHead, TFAutoModelForQuestionAnswering
 from selenium import webdriver
 import sys
 
@@ -29,10 +29,14 @@ class Percival():
     self._gpt2_model = TFGPT2LMHeadModel.from_pretrained("gpt2", pad_token_id=self._gpt2_tokenizer.eos_token_id)
     self.bert_large_uncased_whole_word_masking_finetuned_squad_tokenizer = AutoTokenizer.from_pretrained("bert-large-uncased-whole-word-masking-finetuned-squad")
     self.bert_large_uncased_whole_word_masking_finetuned_squad_model = TFAutoModelForQuestionAnswering.from_pretrained("bert-large-uncased-whole-word-masking-finetuned-squad")
+    self._DialoGP_tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
+    self._DialoGP_model = AutoModelWithLMHead.from_pretrained("microsoft/DialoGPT-medium")
+
+
 
     self._conversation_started=False
     self._conversation_ended=True
-
+    
 
   def _is_greeting(self, text):
     #Common greeting languages
@@ -81,7 +85,6 @@ class Percival():
     #Common greeting languages
     common_about_me=[
         "What is your name?",
-        "Tell me about yourself",
         "Are you real?",
         "How old are you?",
         "who made you?",
@@ -160,11 +163,23 @@ class Percival():
       self._FLAG="notExec"
       return None
 
-  def response(self, text):
-    inputs = self._gpt2_tokenizer.encode(text, return_tensors="tf")
-    outputs =self._gpt2_model.generate(inputs,max_length=100,min_length=100,do_sample=True, top_p=0.70, top_k=50,  temperature=0.75,no_repeat_ngram_size=2)
-    output = self._gpt2_tokenizer.decode(outputs[0])
-    return output.replace(text,"")
+  def response(self, text, is_casual=True):    
+    new_user_input_ids = self._DialoGP_tokenizer.encode(text + self._DialoGP_tokenizer.eos_token, return_tensors='pt')
+    try:
+        # append the new user input tokens to the chat history
+      bot_input_ids = torch.cat([chat_history_ids, new_user_input_ids], dim=-1) if step%100== 0 else new_user_input_ids
+    except:
+      bot_input_ids = new_user_input_ids
+        # generated a response while limiting the total chat history to 1000 tokens, 
+    chat_history_ids = self._DialoGP_model.generate(bot_input_ids, max_length=2000, top_k=30, top_p=0.95, no_repeat_ngram_size=3,temperature=0.45, pad_token_id=self._DialoGP_tokenizer.eos_token_id)
+
+    # pretty print last ouput tokens from bot
+    dgt=self._DialoGP_tokenizer.decode(chat_history_ids[:, bot_input_ids.shape[-1]:][0], skip_special_tokens=True)
+    #inputs = self._gpt2_tokenizer.encode(text, return_tensors="tf")
+    #outputs =self._gpt2_model.generate(inputs,max_length=100,min_length=100,do_sample=True, top_p=0.70, top_k=50,  temperature=0.75,no_repeat_ngram_size=2)
+    #output = self._gpt2_tokenizer.decode(outputs[0])
+    return dgt
+    #return output.replace(text,"")
 
   def converse(self, text):
     """Lifecycle of the chabot chatbot 
@@ -197,12 +212,12 @@ class Percival():
       return (state[1], state[0])
 
     possible_configurations = [(1, 1), (0, 0), (0, 1), (1, 0)]'''
-    if self._is_greeting(text):
-      return self.greet(text)
-    elif self._is_about_me(text):
+    """if self._is_greeting(text):
+      return self.greet(text)"""
+    """if self._is_about_me(text):
       return self.answer_about_me(text)
-    else:
-      return self.response(text)
+    else:"""
+    return self.response(text, is_casual=True)
 
 class fb_bot:
   def __init__(self, username, password):
@@ -210,7 +225,7 @@ class fb_bot:
     self._password = password
     self._wd = webdriver.Chrome('chromedriver',chrome_options=chrome_options) 
     self._wd.get("https://web.facebook.com/messages/t")
-    self.last_sender=False
+    self
 
   def login(self):
     email_input=self._wd.find_element_by_id("email")
@@ -234,8 +249,6 @@ class fb_bot:
     send_button=self._wd.find_element_by_xpath('/html/body/div[1]/div[3]/div[1]/div/div/div/div[2]/span/div[2]/div[2]/div[2]/div[2]/a')
     send_button.click()
     name = self._wd.find_element_by_xpath('//*[@id="js_5"]/span')
-    self._last_sender=True
-    return name.text
 
   def get_current_page(self):
     w = self._wd.get_screenshot_as_file("img.png")
@@ -243,31 +256,32 @@ class fb_bot:
     return img
 
   def get_current_response(self):
+    names = self._wd.find_elements_by_class_name("_1ht5")
+    name = names[0]
+    name.click()
     responses=self._wd.find_elements_by_class_name('_aok')
     return responses[-1]
     
   def get_all_response(self):
-    time.sleep(7)
+    names = wd.find_elements_by_class_name("_1ht5")
+    name = names[0]
+    name.click()
     responses=self._wd.find_elements_by_class_name('_aok')
     return responses
 
-def main(login=True):
-  AI = Percival()
-  bot = fb_bot("adewoleopw@gmail.com", "08017420191ope")
+
+def main():
+  bot = fb_bot("Enter ", "08017420191ope")
   bot.login()
-  text = None
+  AI=Percival()
+  texts=None
+  bot.send_message("Hi")
   while True:
-    try:
-      if bot.get_current_response().text == text:
-        time.sleep(1)
-      else:
-        text = bot.get_current_response().text
-        resp = AI.converse(text)
-        print("text")
-        print(text)
-        print("resp")
-        print(resp)
-        bot.send_message(resp)
-        time.sleep(60)
-    except:
-      pass
+    while bot.get_current_response().text == texts:
+      time.sleep(1)
+    texts = bot.get_current_response().text
+    print(texts)
+    resp = AI.converse(texts)
+    print(resp)
+    bot.send_message(resp)
+    texts = bot.get_current_response().text
