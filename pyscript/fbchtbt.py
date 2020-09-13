@@ -271,7 +271,7 @@ class fb_bot:
 
 
 def main():
-  bot = fb_bot("Enter ", "08017420191ope")
+  bot = fb_bot("Enter email or phone number", "Enter password")
   bot.login()
   AI=Percival()
   texts=None
@@ -285,3 +285,7 @@ def main():
     print(resp)
     bot.send_message(resp)
     texts = bot.get_current_response().text
+
+    
+ if __name__ ==  "__main__:
+   main()
